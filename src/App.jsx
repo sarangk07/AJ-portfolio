@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Navbar from './components/Navbar';
-import BackToTop from './components/BackToTop';
 import HomePage from './pages/HomePage';
 import WorkPage from './pages/WorkPage';
 import AboutPage from './pages/AboutPage';
@@ -134,9 +133,6 @@ export default function App() {
               )}
             </AnimatePresence>
           </main>
-
-          {/* Floating Back to Top control */}
-          <BackToTop />
         </div>
       </ViewportDistortionProvider>
     </SmoothScroll>
