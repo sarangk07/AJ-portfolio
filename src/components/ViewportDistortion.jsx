@@ -11,6 +11,7 @@ export function useViewportDistortion() {
 const store = {
   elements: new Map(),
   listeners: new Set(),
+  readyTextures: new Set(),
   canvasReady: false,
   appearEnabled: false,
   effectEnabled: true,
@@ -18,25 +19,80 @@ const store = {
   sequence: 0
 };
 
+let isNotifying = false;
 function notifyListeners() {
-  store.listeners.forEach((fn) => fn());
+  if (isNotifying) return;
+  isNotifying = true;
+  try {
+    store.listeners.forEach((fn) => fn());
+  } finally {
+    isNotifying = false;
+  }
+}
+
+function parseColor(colorStr) {
+  let str = (colorStr || '#000000').trim().toLowerCase();
+  if (str.startsWith('var(')) {
+    if (typeof document !== 'undefined') {
+      try {
+        const varName = str.slice(4, -1).trim();
+        const resolved = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+        if (resolved) str = resolved.toLowerCase();
+      } catch {
+        // ignore CSS var parsing error
+      }
+    }
+  }
+  if (str.startsWith('#')) {
+    let hex = str.slice(1);
+    if (hex.length === 3 || hex.length === 4) {
+      let parts = hex.split('').map((c) => parseInt(c + c, 16));
+      return [parts[0] / 255, parts[1] / 255, parts[2] / 255, (parts[3] ?? 255) / 255];
+    }
+    if (hex.length === 6 || hex.length === 8) {
+      return [
+        parseInt(hex.slice(0, 2), 16) / 255,
+        parseInt(hex.slice(2, 4), 16) / 255,
+        parseInt(hex.slice(4, 6), 16) / 255,
+        (hex.length === 8 ? parseInt(hex.slice(6, 8), 16) : 255) / 255
+      ];
+    }
+  }
+  const match = str.match(/rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)/);
+  if (match) {
+    const clamp01 = (v) => Math.min(1, Math.max(0, v));
+    return [
+      clamp01(Number(match[1]) / 255),
+      clamp01(Number(match[2]) / 255),
+      clamp01(Number(match[3]) / 255),
+      clamp01(match[4] === undefined ? 1 : Number(match[4]))
+    ];
+  }
+  return [17 / 255, 17 / 255, 17 / 255, 1.0];
 }
 
 function registerElement(id, node, options) {
   const existing = store.elements.get(id);
+  const isColor = options.sourceType === 'color';
+  const isTexReady = isColor || (options.src && store.readyTextures.has(options.src));
   if (existing) {
-    const changed = existing.options.src !== options.src;
+    const changed = existing.options.sourceType !== options.sourceType || existing.options.src !== options.src;
     existing.node = node;
     existing.options = options;
-    if (changed) existing.ready = false;
+    if (changed) existing.ready = !!isTexReady;
+    existing._cachedBox = null;
   } else {
     store.elements.set(id, {
       id,
       node,
       options,
       sequence: store.sequence++,
-      ready: false
+      ready: !!isTexReady,
+      _cachedBox: null
     });
+  }
+  if (isTexReady) {
+    store.canvasReady = true;
   }
   notifyListeners();
 }
@@ -47,22 +103,29 @@ function unregisterElement(id) {
   }
 }
 
-function useIsItemReady(id) {
+function useIsItemReady(id, src, sourceType) {
   const [ready, setReady] = useState(() => {
-    const it = store.elements.get(id);
-    return !!(store.canvasReady && it?.ready);
+    if (!store.canvasReady) return false;
+    if (sourceType === 'color') return true;
+    if (!src) return false;
+    return store.readyTextures.has(src);
   });
 
   useEffect(() => {
     const check = () => {
-      const it = store.elements.get(id);
-      const isR = !!(store.canvasReady && it?.ready);
+      const isR = !store.canvasReady
+        ? false
+        : sourceType === 'color'
+        ? true
+        : !src
+        ? false
+        : store.readyTextures.has(src);
       setReady((prev) => (prev !== isR ? isR : prev));
     };
     store.listeners.add(check);
     check();
     return () => store.listeners.delete(check);
-  }, [id]);
+  }, [id, src, sourceType]);
 
   return ready;
 }
@@ -412,8 +475,54 @@ class ViewportWarpRenderer {
     this.lastScrollActivityTime = performance.now();
     this.lenisAttached = false;
 
+    // Cache element geometry to eliminate layout thrashing during scroll
+    this.measureItems = () => {
+      const pageY = window.scrollY || window.pageYOffset || 0;
+      const now = performance.now();
+      for (const item of store.elements.values()) {
+        if (item.node && item.node.isConnected) {
+          const r = item.node.getBoundingClientRect();
+          item._cachedBox = {
+            docTop: r.top + pageY,
+            left: r.left,
+            width: r.width,
+            height: r.height,
+            measuredAt: now
+          };
+        }
+      }
+    };
+
+    // Update canvas resolution only on resize
+    this.updateCanvasDimensions = () => {
+      const vpW = window.innerWidth;
+      const vpH = window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, this.settings.maxDpr || 1.35);
+      const canvasW = Math.round(vpW * dpr);
+      const canvasH = Math.round(vpH * dpr);
+      if (this.canvas.width !== canvasW || this.canvas.height !== canvasH) {
+        this.canvas.width = canvasW;
+        this.canvas.height = canvasH;
+        this.canvas.style.width = `${vpW}px`;
+        this.canvas.style.height = `${vpH}px`;
+        gl.viewport(0, 0, canvasW, canvasH);
+      }
+    };
+    this.updateCanvasDimensions();
+
     // Event listeners
     this.handleScroll = () => {
+      const now = performance.now();
+      if (now - this.lastScrollActivityTime > 300) {
+        this.measureItems();
+      }
+      this.lastScrollActivityTime = now;
+      this.wakeRenderer();
+    };
+
+    this.handleResize = () => {
+      this.updateCanvasDimensions();
+      this.measureItems();
       this.lastScrollActivityTime = performance.now();
       this.wakeRenderer();
     };
@@ -435,7 +544,20 @@ class ViewportWarpRenderer {
     window.addEventListener('scroll', this.handleScroll, { passive: true });
     window.addEventListener('pointermove', this.handlePointerMove, { passive: true });
     window.addEventListener('pointerleave', this.handlePointerLeave, { passive: true });
-    window.addEventListener('resize', this.handleScroll, { passive: true });
+    window.addEventListener('resize', this.handleResize, { passive: true });
+
+    // Store listener to sync immediately on element registration/unregistration
+    this.handleStoreUpdate = () => {
+      this.syncGpuRecords();
+      this.syncReadyFlags();
+      this.measureItems();
+      this.wakeRenderer();
+    };
+    store.listeners.add(this.handleStoreUpdate);
+
+    // Initial sync
+    this.syncGpuRecords();
+    this.syncReadyFlags();
 
     // Sync with Lenis instance
     const attachLenis = () => {
@@ -464,6 +586,9 @@ class ViewportWarpRenderer {
     };
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
 
+    setTimeout(() => this.measureItems(), 100);
+    setTimeout(() => this.measureItems(), 500);
+
     this.wakeRenderer();
   }
 
@@ -473,6 +598,7 @@ class ViewportWarpRenderer {
   }
 
   createTexture(src) {
+    if (!src) return null;
     const gl = this.gl;
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -484,6 +610,12 @@ class ViewportWarpRenderer {
 
     const record = { src, texture: tex, width: 1, height: 1, ready: false };
     const img = new Image();
+    img.decoding = 'async';
+    try {
+      img.fetchPriority = 'high';
+    } catch {
+      // ignore
+    }
     if (!src.startsWith('data:') && !src.startsWith('blob:')) {
       img.crossOrigin = 'anonymous';
     }
@@ -497,6 +629,8 @@ class ViewportWarpRenderer {
         record.width = sourceImg.naturalWidth || sourceImg.width || 1;
         record.height = sourceImg.naturalHeight || sourceImg.height || 1;
         record.ready = true;
+        store.readyTextures.add(src);
+        store.canvasReady = true;
         this.syncReadyFlags();
         this.wakeRenderer();
       } catch (err) {
@@ -520,25 +654,48 @@ class ViewportWarpRenderer {
   }
 
   acquireTexture(src) {
+    if (!src) return null;
     let rec = this.textures.get(src);
     if (!rec) {
       rec = this.createTexture(src);
-      this.textures.set(src, rec);
+      if (rec) this.textures.set(src, rec);
     }
     return rec;
   }
 
-  syncReadyFlags() {
-    let anyReady = false;
+  syncGpuRecords() {
     for (const item of store.elements.values()) {
-      const tex = this.textures.get(item.options.src);
-      if (tex && tex.ready) {
-        item.ready = true;
-        anyReady = true;
+      if (item.options.sourceType === 'image' && item.options.src) {
+        this.acquireTexture(item.options.src);
       }
     }
+  }
+
+  syncReadyFlags() {
+    let anyReady = false;
+    let anyItemChanged = false;
+    for (const item of store.elements.values()) {
+      let isReady = false;
+      if (item.options.sourceType === 'color') {
+        isReady = true;
+      } else if (item.options.src) {
+        const tex = this.textures.get(item.options.src);
+        isReady = !!(tex && tex.ready);
+        if (isReady) {
+          store.readyTextures.add(item.options.src);
+        }
+      }
+      if (item.ready !== isReady) {
+        item.ready = isReady;
+        anyItemChanged = true;
+      }
+      if (isReady) anyReady = true;
+    }
+    const canvasChanged = store.canvasReady !== anyReady;
     store.canvasReady = anyReady;
-    notifyListeners();
+    if (canvasChanged || anyItemChanged) {
+      notifyListeners();
+    }
   }
 
   getHoverProgress(id, isActive, now) {
@@ -563,20 +720,12 @@ class ViewportWarpRenderer {
     this.animationFrame = 0;
     if (this.disposed) return;
 
+    this.syncGpuRecords();
+    this.syncReadyFlags();
+
     const gl = this.gl;
     const vpW = window.innerWidth;
     const vpH = window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, this.settings.maxDpr || 1.35);
-
-    const canvasW = Math.round(vpW * dpr);
-    const canvasH = Math.round(vpH * dpr);
-    if (this.canvas.width !== canvasW || this.canvas.height !== canvasH) {
-      this.canvas.width = canvasW;
-      this.canvas.height = canvasH;
-      this.canvas.style.width = `${vpW}px`;
-      this.canvas.style.height = `${vpH}px`;
-      gl.viewport(0, 0, canvasW, canvasH);
-    }
 
     // Calculate scroll velocity
     const pageY = window.scrollY || window.pageYOffset || 0;
@@ -622,47 +771,76 @@ class ViewportWarpRenderer {
     gl.uniform1f(this.uniforms.glossTilt, this.settings.glossTilt);
     gl.uniform1i(this.uniforms.texture, 0);
 
-    const items = Array.from(store.elements.values()).filter((e) => e.options.enabled && e.node.isConnected);
+    const items = Array.from(store.elements.values()).filter((e) => e.options.enabled && e.node && e.node.isConnected);
 
     for (const item of items) {
-      const rect = item.node.getBoundingClientRect();
-      if (rect.bottom < -100 || rect.top > vpH + 100 || rect.width <= 0 || rect.height <= 0) {
+      let box = item._cachedBox;
+      if (!box || (now - box.measuredAt > 150)) {
+        const r = item.node.getBoundingClientRect();
+        box = item._cachedBox = {
+          docTop: r.top + pageY,
+          left: r.left,
+          width: r.width,
+          height: r.height,
+          measuredAt: now
+        };
+      }
+
+      const rectTop = box.docTop - pageY;
+      const rectBottom = rectTop + box.height;
+
+      if (rectBottom < -100 || rectTop > vpH + 100 || box.width <= 0 || box.height <= 0) {
         continue;
       }
 
-      const texRec = this.acquireTexture(item.options.src);
-      if (!texRec || !texRec.ready) {
-        continue;
+      const isColor = item.options.sourceType === 'color';
+      let texRec = null;
+
+      if (!isColor) {
+        if (!item.options.src) continue;
+        texRec = this.acquireTexture(item.options.src);
+        if (!texRec || !texRec.ready) {
+          continue;
+        }
       }
 
       const b = item.options.distortion || 1;
-      gl.uniform4f(this.uniforms.rect, rect.left, rect.top, rect.width, rect.height);
+      gl.uniform4f(this.uniforms.rect, box.left, rectTop, box.width, box.height);
       gl.uniform1f(this.uniforms.strength, this.settings.strength * b);
       gl.uniform1f(this.uniforms.scrollBoost, this.settings.scrollBoost * b);
       gl.uniform1f(this.uniforms.scrollLag, this.settings.scrollLag * b);
       gl.uniform1f(this.uniforms.verticalBend, this.settings.verticalBend * b);
-      gl.uniform2f(this.uniforms.boxSize, rect.width, rect.height);
+      gl.uniform2f(this.uniforms.boxSize, box.width, box.height);
       gl.uniform2f(this.uniforms.position, 0.5, 0.5);
-      gl.uniform1f(this.uniforms.radius, item.options.radius || 14);
-      gl.uniform1f(this.uniforms.opacity, 1.0);
+      gl.uniform1f(this.uniforms.radius, item.options.radius ?? 12);
+      gl.uniform1f(this.uniforms.opacity, item.options.opacity ?? 1.0);
 
       const isHovered =
+        !isColor &&
         this.pointerActive &&
-        this.pointerX >= rect.left &&
-        this.pointerX <= rect.right &&
-        this.pointerY >= rect.top &&
-        this.pointerY <= rect.bottom;
-      const hoverProgress = this.getHoverProgress(item.id, isHovered, now);
+        this.pointerX >= box.left &&
+        this.pointerX <= box.left + box.width &&
+        this.pointerY >= rectTop &&
+        this.pointerY <= rectBottom;
+      const hoverProgress = !isColor ? this.getHoverProgress(item.id, isHovered, now) : 0;
       const hoverScale = 1 + (this.settings.hoverZoomAmount || 0.06) * hoverProgress;
 
       gl.uniform1f(this.uniforms.hoverScale, hoverScale);
       gl.uniform2f(this.uniforms.hoverOrigin, 0.5, 0.5);
       gl.uniform1f(this.uniforms.fit, 0); // cover
 
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, texRec.texture);
-      gl.uniform1f(this.uniforms.useTexture, 1);
-      gl.uniform2f(this.uniforms.imageSize, texRec.width, texRec.height);
+      if (isColor) {
+        const [r, g, bColor, a] = parseColor(item.options.color);
+        gl.uniform1f(this.uniforms.useTexture, 0);
+        gl.uniform2f(this.uniforms.imageSize, 1, 1);
+        gl.uniform4f(this.uniforms.color, r, g, bColor, a);
+      } else {
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texRec.texture);
+        gl.uniform1f(this.uniforms.useTexture, 1);
+        gl.uniform2f(this.uniforms.imageSize, texRec.width, texRec.height);
+        gl.uniform4f(this.uniforms.color, 1, 1, 1, 1);
+      }
 
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
     }
@@ -684,8 +862,9 @@ class ViewportWarpRenderer {
     window.removeEventListener('scroll', this.handleScroll);
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerleave', this.handlePointerLeave);
-    window.removeEventListener('resize', this.handleScroll);
+    window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    store.listeners.delete(this.handleStoreUpdate);
     if (window.__lenisInstance && this.lenisAttached) {
       window.__lenisInstance.off('scroll', this.handleScroll);
     }
@@ -696,6 +875,7 @@ class ViewportWarpRenderer {
       this.gl.deleteTexture(t.texture);
     }
     this.textures.clear();
+    store.readyTextures.clear();
     this.gl.deleteBuffer(this.positionBuffer);
     this.gl.deleteBuffer(this.uvBuffer);
     this.gl.deleteBuffer(this.indexBuffer);
@@ -704,22 +884,22 @@ class ViewportWarpRenderer {
 }
 
 export const SETTINGS = {
-  strength: 0.075,
+  strength: 0.09,
   zoneStart: 0.64,
-  curve: 1.75,
-  scrollBoost: 0.075,
-  scrollLag: 5.0,
-  verticalBend: 5.0,
-  edgeReach: 0.32,
-  edgeFalloff: 1.35,
-  bottomNarrowing: 0.08,
-  bottomNarrowStart: 0.82,
-  bottomNarrowSmoothness: 1.0,
+  curve: 1.7,
+  scrollBoost: 0.06,
+  scrollLag: 12.0,
+  verticalBend: 7.5,
+  edgeReach: 0.26,
+  edgeFalloff: 1.4,
+  bottomNarrowing: 0.18,
+  bottomNarrowStart: 0.84,
+  bottomNarrowSmoothness: 0.75,
   glossEnabled: true,
-  glossOpacity: 0.04,
-  glossStart: 0.82,
-  glossWidth: 0.38,
-  glossSoftness: 0.25,
+  glossOpacity: 0.05,
+  glossStart: 0.80,
+  glossWidth: 0.35,
+  glossSoftness: 0.22,
   glossTilt: 0.0,
   hoverZoomEnabled: true,
   hoverZoomAmount: 0.06,
@@ -736,13 +916,17 @@ export function ViewportDistortionProvider({ children }) {
 
     try {
       rendererRef.current = new ViewportWarpRenderer(canvas, SETTINGS);
+      store.canvasReady = true;
+      notifyListeners();
     } catch (err) {
       console.warn('WebGL Viewport Distortion initialization failed:', err);
     }
 
     return () => {
+      store.canvasReady = false;
       rendererRef.current?.dispose();
       rendererRef.current = null;
+      notifyListeners();
     };
   }, []);
 
@@ -783,17 +967,19 @@ export function ViewportImage({
   radius = 14,
   fit = 'cover',
   className = '',
+  style = {},
   children
 }) {
   const nodeRef = useRef(null);
   const [itemId] = useState(() => `vp-img-${Math.random().toString(36).slice(2)}`);
-  const isReady = useIsItemReady(itemId);
+  const isReady = useIsItemReady(itemId, src, 'image');
 
   useEffect(() => {
     const el = nodeRef.current;
     if (!el) return;
 
     registerElement(itemId, el, {
+      sourceType: 'image',
       src,
       radius,
       fit,
@@ -814,21 +1000,87 @@ export function ViewportImage({
         height: '100%',
         borderRadius: `${radius}px`,
         overflow: 'hidden',
-        background: 'transparent'
+        background: 'transparent',
+        ...style
       }}
     >
       <img
         src={src}
         alt={alt}
         draggable={false}
+        aria-hidden={isReady ? 'true' : undefined}
         style={{
           display: 'block',
           width: '100%',
           height: '100%',
           objectFit: fit,
           opacity: isReady ? 0 : 1,
+          visibility: isReady ? 'hidden' : 'visible',
+          pointerEvents: 'none',
+          userSelect: 'none',
+          transition: 'opacity 150ms ease-out'
+        }}
+      />
+      {children}
+    </div>
+  );
+}
+
+// ViewportBackground component for solid cards / containers (sourceType: 'color')
+export function ViewportBackground({
+  color = '#111111',
+  radius = 12,
+  distortion = 1,
+  className = '',
+  style = {},
+  children
+}) {
+  const nodeRef = useRef(null);
+  const [itemId] = useState(() => `vp-bg-${Math.random().toString(36).slice(2)}`);
+  const isReady = useIsItemReady(itemId, null, 'color');
+
+  useEffect(() => {
+    const el = nodeRef.current;
+    if (!el) return;
+
+    registerElement(itemId, el, {
+      sourceType: 'color',
+      color,
+      radius,
+      distortion,
+      enabled: true
+    });
+
+    return () => unregisterElement(itemId);
+  }, [itemId, color, radius, distortion]);
+
+  return (
+    <div
+      ref={nodeRef}
+      className={`viewport-background-layer ${className}`}
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        borderRadius: `${radius}px`,
+        overflow: 'hidden',
+        pointerEvents: 'none',
+        zIndex: 1,
+        ...style
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          backgroundColor: color,
+          borderRadius: `${radius}px`,
+          opacity: isReady ? 0 : 1,
+          visibility: isReady ? 'hidden' : 'visible',
           transition: 'opacity 150ms ease-out',
-          userSelect: 'none'
+          pointerEvents: 'none'
         }}
       />
       {children}

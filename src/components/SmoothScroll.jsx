@@ -25,10 +25,10 @@ export default function SmoothScroll({ children }) {
     <ReactLenis
       root
       options={{
-        lerp: 0.08,
+        duration: 1.1,
         smoothWheel: true,
         wheelMultiplier: 1.0,
-        touchMultiplier: 1.5,
+        touchMultiplier: 1.0,
         infinite: false,
         autoResize: true
       }}

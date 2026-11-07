@@ -5,7 +5,7 @@ import ImageCylinder3D from '../components/ImageCylinder3D';
 import Footer from '../components/Footer';
 import { projects } from '../data/projects';
 
-export default function WorkPage({ onSelectProject, onNavigate, onCardHoverStart, onCardHoverEnd }) {
+export default function WorkPage({ onSelectProject, onNavigate }) {
   return (
     <div className="work-page">
       {/* 2-Column Work Hero Section */}
@@ -46,8 +46,6 @@ export default function WorkPage({ onSelectProject, onNavigate, onCardHoverStart
               key={project.id}
               project={project}
               onSelect={onSelectProject}
-              onHoverStart={onCardHoverStart}
-              onHoverEnd={onCardHoverEnd}
             />
           ))}
         </div>

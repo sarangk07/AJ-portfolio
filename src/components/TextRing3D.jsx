@@ -12,10 +12,6 @@ export default function TextRing3D({
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 1000, height: 500 });
   const ringRef = useRef(null);
-  const dragOffsetRef = useRef(0);
-  const isDraggingRef = useRef(false);
-  const dragStartX = useRef(0);
-  const currentDrag = useRef(0);
 
   // Resize measurement
   useEffect(() => {
@@ -49,32 +45,11 @@ export default function TextRing3D({
   useEffect(() => {
     const unsubscribe = smoothScrollRotation.on('change', (latest) => {
       if (ringRef.current) {
-        ringRef.current.style.transform = `rotateY(${latest + dragOffsetRef.current}deg)`;
+        ringRef.current.style.transform = `rotateY(${latest}deg)`;
       }
     });
     return () => unsubscribe();
   }, [smoothScrollRotation]);
-
-  // Mouse / Touch Drag interaction
-  const handlePointerDown = (e) => {
-    isDraggingRef.current = true;
-    dragStartX.current = e.clientX || (e.touches && e.touches[0].clientX) || 0;
-    currentDrag.current = dragOffsetRef.current;
-  };
-
-  const handlePointerMove = (e) => {
-    if (!isDraggingRef.current) return;
-    const clientX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
-    const diff = (clientX - dragStartX.current) * 0.4;
-    dragOffsetRef.current = currentDrag.current + diff;
-    if (ringRef.current) {
-      ringRef.current.style.transform = `rotateY(${smoothScrollRotation.get() + dragOffsetRef.current}deg)`;
-    }
-  };
-
-  const handlePointerUp = () => {
-    isDraggingRef.current = false;
-  };
 
   // 3D Geometry calculations
   const A = Math.max(320, Math.min(dimensions.width, dimensions.height * 1.8));
@@ -87,13 +62,10 @@ export default function TextRing3D({
     <div
       ref={containerRef}
       className="text-ring-section"
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
       style={{
         perspective: `${perspective}px`,
-        touchAction: 'none'
+        pointerEvents: 'none',
+        userSelect: 'none'
       }}
     >
       <div
@@ -148,11 +120,11 @@ export default function TextRing3D({
                     fontSize: `${fontSize}px`,
                     fontWeight: 600,
                     letterSpacing: '-0.03em',
-                    color: 'var(--color-dark)',
+                    color: '#ffffff',
                     whiteSpace: 'nowrap',
                     textTransform: 'uppercase',
                     userSelect: 'none',
-                    filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.03))'
+                    filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.4))'
                   }}
                 >
                   {text}

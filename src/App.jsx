@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Navbar from './components/Navbar';
-import CustomCursor from './components/CustomCursor';
 import BackToTop from './components/BackToTop';
 import HomePage from './pages/HomePage';
 import WorkPage from './pages/WorkPage';
@@ -14,7 +13,6 @@ import { projects } from './data/projects';
 export default function App() {
   const [currentPath, setCurrentPath] = useState('/');
   const [selectedProject, setSelectedProject] = useState(null);
-  const [isCardHovered, setIsCardHovered] = useState(false);
 
   // Sync with URL Hash / Path on Mount and changes
   useEffect(() => {
@@ -76,80 +74,71 @@ export default function App() {
     <SmoothScroll>
       <ViewportDistortionProvider>
         <div className="app-container">
-        {/* Interactive Custom Cursor */}
-        <CustomCursor isCardHovered={isCardHovered} />
+          {/* Persistent Navigation Bar */}
+          <Navbar currentPath={currentPath} onNavigate={navigateTo} />
 
-        {/* Persistent Navigation Bar */}
-        <Navbar currentPath={currentPath} onNavigate={navigateTo} />
+          {/* Main Content with smooth page transition */}
+          <main className="main-content">
+            <AnimatePresence mode="wait">
+              {selectedProject ? (
+                <motion.div
+                  key={selectedProject.id}
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.35, ease: [0.12, 0.23, 0.5, 1] }}
+                >
+                  <ProjectDetailPage
+                    project={selectedProject}
+                    onBack={handleBackToWorks}
+                    onSelectProject={handleSelectProject}
+                    onNavigate={navigateTo}
+                  />
+                </motion.div>
+              ) : currentPath === '/work' ? (
+                <motion.div
+                  key="work"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.35, ease: [0.12, 0.23, 0.5, 1] }}
+                >
+                  <WorkPage
+                    onSelectProject={handleSelectProject}
+                    onNavigate={navigateTo}
+                  />
+                </motion.div>
+              ) : currentPath === '/about' ? (
+                <motion.div
+                  key="about"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.35, ease: [0.12, 0.23, 0.5, 1] }}
+                >
+                  <AboutPage onNavigate={navigateTo} />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="home"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.35, ease: [0.12, 0.23, 0.5, 1] }}
+                >
+                  <HomePage
+                    onSelectProject={handleSelectProject}
+                    onNavigate={navigateTo}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </main>
 
-        {/* Main Content with smooth page transition */}
-        <main className="main-content">
-          <AnimatePresence mode="wait">
-            {selectedProject ? (
-              <motion.div
-                key={selectedProject.id}
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.35, ease: [0.12, 0.23, 0.5, 1] }}
-              >
-                <ProjectDetailPage
-                  project={selectedProject}
-                  onBack={handleBackToWorks}
-                  onSelectProject={handleSelectProject}
-                  onNavigate={navigateTo}
-                  onCardHoverStart={() => setIsCardHovered(true)}
-                  onCardHoverEnd={() => setIsCardHovered(false)}
-                />
-              </motion.div>
-            ) : currentPath === '/work' ? (
-              <motion.div
-                key="work"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.35, ease: [0.12, 0.23, 0.5, 1] }}
-              >
-                <WorkPage
-                  onSelectProject={handleSelectProject}
-                  onNavigate={navigateTo}
-                  onCardHoverStart={() => setIsCardHovered(true)}
-                  onCardHoverEnd={() => setIsCardHovered(false)}
-                />
-              </motion.div>
-            ) : currentPath === '/about' ? (
-              <motion.div
-                key="about"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.35, ease: [0.12, 0.23, 0.5, 1] }}
-              >
-                <AboutPage onNavigate={navigateTo} />
-              </motion.div>
-            ) : (
-              <motion.div
-                key="home"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.35, ease: [0.12, 0.23, 0.5, 1] }}
-              >
-                <HomePage
-                  onSelectProject={handleSelectProject}
-                  onNavigate={navigateTo}
-                  onCardHoverStart={() => setIsCardHovered(true)}
-                  onCardHoverEnd={() => setIsCardHovered(false)}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </main>
-
-        {/* Floating Back to Top control */}
-        <BackToTop />
-      </div>
-    </ViewportDistortionProvider>
-  </SmoothScroll>
+          {/* Floating Back to Top control */}
+          <BackToTop />
+        </div>
+      </ViewportDistortionProvider>
+    </SmoothScroll>
   );
 }

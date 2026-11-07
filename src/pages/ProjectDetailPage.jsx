@@ -3,15 +3,14 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowUpRight } from 'lucide-react';
 import ProjectCard from '../components/ProjectCard';
 import Footer from '../components/Footer';
+import { ViewportImage } from '../components/ViewportDistortion';
 import { projects } from '../data/projects';
 
 export default function ProjectDetailPage({
   project,
   onBack,
   onSelectProject,
-  onNavigate,
-  onCardHoverStart,
-  onCardHoverEnd
+  onNavigate
 }) {
   if (!project) return null;
 
@@ -95,11 +94,11 @@ export default function ProjectDetailPage({
               viewport={{ once: true, margin: '-60px' }}
               transition={{ duration: 0.7, ease: [0.12, 0.23, 0.5, 1] }}
             >
-              <img
+              <ViewportImage
                 src={imgSrc}
                 alt={`${project.title} mockup ${idx + 1}`}
-                style={{ width: '100%', height: 'auto', display: 'block' }}
-                loading="lazy"
+                radius={16}
+                fit="cover"
               />
             </motion.div>
           ))}
@@ -119,8 +118,6 @@ export default function ProjectDetailPage({
                 onSelectProject(selected);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              onHoverStart={onCardHoverStart}
-              onHoverEnd={onCardHoverEnd}
             />
           ))}
         </div>

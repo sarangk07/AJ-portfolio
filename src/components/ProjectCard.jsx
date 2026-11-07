@@ -2,21 +2,11 @@ import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { ViewportImage } from './ViewportDistortion';
 
-export default function ProjectCard({ project, onSelect, onHoverStart, onHoverEnd }) {
-  const handleMouseEnter = () => {
-    if (onHoverStart) onHoverStart();
-  };
-
-  const handleMouseLeave = () => {
-    if (onHoverEnd) onHoverEnd();
-  };
-
+export default function ProjectCard({ project, onSelect }) {
   return (
     <div
       className="project-card"
       onClick={() => onSelect(project)}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
     >
       {/* Authentic WebGL Viewport Distortion Image */}
       <ViewportImage
@@ -25,6 +15,7 @@ export default function ProjectCard({ project, onSelect, onHoverStart, onHoverEn
         radius={14}
         fit="cover"
         className="project-card-image-wrap"
+        style={{ position: 'absolute', inset: 0 }}
       />
 
       {/* Top Header: Title + Circular Arrow Badge */}
