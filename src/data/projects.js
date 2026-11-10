@@ -1,3 +1,9 @@
+// ==========================================
+// 1. PROJECTS LIST
+// To change project images or details:
+// - Place new images in: /public/images/
+// - Update the 'image' (card cover) and 'gallery' (detail page mockups) paths below.
+// ==========================================
 export const projects = [
   {
     id: 'syndicate',
@@ -115,6 +121,9 @@ export const projects = [
   }
 ];
 
+// ==========================================
+// 2. 3D CYLINDER / SLIDESHOW IMAGES (Work Page Hero)
+// ==========================================
 export const cylinderSlides = [
   { id: 1, image: '/images/slide-1.jpg', title: 'Editorial 01' },
   { id: 2, image: '/images/slide-2.jpg', title: 'Texture 02' },
@@ -128,6 +137,17 @@ export const cylinderSlides = [
   { id: 10, image: '/images/slide-10.jpg', title: 'Motion 10' }
 ];
 
+// ==========================================
+// 3. ABOUT PAGE IMAGES
+// ==========================================
+export const aboutImages = {
+  portrait: '/images/about-portrait-1.jpg', // Top right portrait next to bio
+  fullwidth: '/images/about-portrait-2.jpg' // Bottom studio full-width landscape
+};
+
+// ==========================================
+// 4. EXPERIENCE & SERVICES
+// ==========================================
 export const experienceData = [
   { period: '2025 — Present', role: 'Head of Design', company: 'Spotify', location: 'New York' },
   { period: '2023 — 2025', role: 'Art Director', company: 'Spotify', location: 'New York' },

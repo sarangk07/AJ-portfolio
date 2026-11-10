@@ -5,7 +5,7 @@ import HeroTitleLiquid from '../components/HeroTitleLiquid';
 import TextRing3D from '../components/TextRing3D';
 import Footer from '../components/Footer';
 import { ViewportImage, ViewportBackground } from '../components/ViewportDistortion';
-import { experienceData, servicesList, industriesList } from '../data/projects';
+import { experienceData, servicesList, industriesList, aboutImages } from '../data/projects';
 
 export default function AboutPage({ onNavigate }) {
   return (
@@ -97,7 +97,7 @@ export default function AboutPage({ onNavigate }) {
             transition={{ duration: 0.7, ease: [0.12, 0.23, 0.5, 1] }}
           >
             <ViewportImage
-              src="/images/about-portrait-1.jpg"
+              src={aboutImages.portrait}
               alt="Paul Michel"
               radius={12}
               fit="cover"
@@ -115,7 +115,7 @@ export default function AboutPage({ onNavigate }) {
           transition={{ duration: 0.7, ease: [0.12, 0.23, 0.5, 1] }}
         >
           <ViewportImage
-            src="/images/about-portrait-2.jpg"
+            src={aboutImages.fullwidth}
             alt="Paul Michel Studio Environment"
             radius={12}
             fit="cover"
